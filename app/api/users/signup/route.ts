@@ -1,51 +1,63 @@
 import connect from '@/dbConfig/dbConfig'
-import User from '@/models/userModel';
+import User from '@/models/userModel'
 import { NextRequest, NextResponse } from 'next/server'
-import bcrypt from 'bcryptjs';
-import { sendMail } from '@/utils/mailer';
+import bcrypt from 'bcryptjs'
+import { sendMail } from '@/utils/mailer'
 
 connect()
+
 export async function POST(request: NextRequest) {
     try {
-        const reqBody = await request.json();
-        console.log(reqBody)
-        const { username, email, password } = reqBody
+        const { username, email, password } = await request.json()
 
-        //validation ----use zod
-
-
-        //check if alrady exists
-        const user = await User.findOne({ email });
-        if (user) {
-            return NextResponse.json({
-                status: 400,
-                success: false,
-                error: "user already exists"
-            })
+        // basic validation (until Zod is added)
+        if (!username || !email || !password) {
+            return NextResponse.json(
+                { success: false, error: 'All fields are required' },
+                { status: 400 }
+            )
         }
-        //if not first hash the password then create the db entry 
+
+        // check if user already exists
+        const existingUser = await User.findOne({ email })
+        if (existingUser) {
+            return NextResponse.json(
+                { success: false, error: 'User already exists' },
+                { status: 409 } // Conflict is better here
+            )
+        }
+
+        // hash password
         const hashedPassword = await bcrypt.hash(password, 10)
 
+        // create user
         const createdUser = await User.create({
-            username, email, password: hashedPassword
+            username,
+            email,
+            password: hashedPassword
         })
-        console.log("user", createdUser)
-        // user is created now its time to send an email
 
-        await sendMail({ email, emailType: "VERIFY", userId: createdUser._id })
-        //return successful response 
+        // send verification email
+        await sendMail({
+            email,
+            emailType: 'VERIFY',
+            userId: createdUser._id
+        })
+
+        // remove password before sending response
+        const userObject = createdUser.toObject()
+        delete userObject.password
+
         return NextResponse.json({
             success: true,
-            user: createdUser,
-            message: "user created successfully"
+            user: userObject,
+            message: 'User created successfully'
         })
-      
 
-    } catch (err: any) {
-        return NextResponse.json({
-            error: err.message || "something went wrong"
-        }, {
-            status: 500
-        })
+    } catch (err: any) {    
+        return NextResponse.json(
+            { success: false, error: err.message || 'Something went wrong' },
+            { status: 500 }
+        )
     }
 }
